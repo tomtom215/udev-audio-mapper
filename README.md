@@ -4,7 +4,7 @@ A tool to create persistent device names for USB audio interfaces in Linux using
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-![Linux USB Audio Mapper](https://raw.githubusercontent.com/username/linux-usb-audio-mapper/main/images/banner.png)
+![Linux USB Audio Mapper](https://raw.githubusercontent.com/tomtom215/udev-audio-mapper/main/images/banner.png)
 
 ## Why Use This?
 
@@ -33,7 +33,7 @@ This script solves that problem by creating udev rules that give your USB audio 
 ### Quick Install
 
 ```bash
-git clone https://github.com/username/udev-audio-mapper.git
+git clone https://github.com/tomtom215/udev-audio-mapper.git
 cd udev-audio-mapper
 chmod +x usb-soundcard-mapper.sh
 ```
@@ -42,7 +42,7 @@ chmod +x usb-soundcard-mapper.sh
 
 1. Download the script:
 ```bash
-wget https://raw.githubusercontent.com/username/udev-audio-mapper/main/usb-soundcard-mapper.sh
+wget https://raw.githubusercontent.com/tomtom215/udev-audio-mapper/main/usb-soundcard-mapper.sh
 ```
 
 2. Make it executable:
