@@ -155,7 +155,7 @@ cat /proc/asound/cards
 
 3. **Rule Activation**: The script reloads udev rules, which will take effect when you reconnect the device or reboot.
 
-For a deeper technical explanation, see [DOCUMENTATION.md](docs/DOCUMENTATION.md).
+For a deeper technical explanation, see [DOCUMENTATION.md](DOCUMENTATION.md).
 
 ## Contributing
 
