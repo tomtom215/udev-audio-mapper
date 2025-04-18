@@ -4,10 +4,6 @@ A robust Linux bash script that creates persistent names for USB audio devices, 
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-# USB Sound Card Mapper
-
-A robust Linux bash script that creates persistent names for USB audio devices, ensuring they maintain the same device name across reboots, even when using multiple identical USB sound cards.
-
 ## Problem Solved
 
 If you use multiple USB audio interfaces on Linux, you've likely encountered these frustrating issues:
