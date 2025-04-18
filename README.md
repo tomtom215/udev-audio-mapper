@@ -144,7 +144,7 @@ The `-D` flag enables detailed debug output to help identify the issue.
 To verify that your rules were created correctly:
 
 ```bash
-cat /etc/udev/rules.d/99-usb-soundcards.rules
+sudo cat /etc/udev/rules.d/99-usb-soundcards.rules
 ```
 
 ### Device Listing
