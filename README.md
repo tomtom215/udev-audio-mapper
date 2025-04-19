@@ -6,6 +6,84 @@ A Linux utility for creating persistent naming rules for USB audio devices, ensu
 
 USB Audio Mapper creates udev rules to persistently name your USB audio devices in Linux. This solves the common issue where USB audio devices may change names (card0, card1, etc.) when other devices are connected or after reboots, causing configuration and application problems.
 
+## Use Cases
+
+The USB Audio Mapper is particularly useful in the following scenarios:
+
+### Professional Audio Production
+
+- **Recording Studios**: When using multiple audio interfaces in professional environments where consistent routing is critical
+- **Live Performance**: For musicians using Linux-based systems where audio devices must maintain the same configuration between shows
+- **Podcasting/Streaming**: Ensuring microphones and mixers maintain consistent device names across recording sessions
+
+### Multi-Device Setups
+
+- **Multiple Identical Devices**: When using several identical USB microphones or interfaces that would otherwise be indistinguishable
+- **Complex Audio Routing**: For setups with multiple input and output devices that need stable device paths
+- **Video Conferencing Systems**: Ensuring the correct microphone is always used regardless of connection order
+
+### Automated Systems
+
+- **Kiosks & Digital Signage**: Systems that must reliably use specific audio hardware after reboots
+- **Unattended Systems**: Servers or appliances that need to automatically recognize the correct audio devices
+- **Embedded Applications**: Industrial control systems or information kiosks with specific audio hardware requirements
+
+### Development and Testing
+
+- **Audio Software Development**: When developing applications that interact with audio hardware
+- **Hardware Testing**: For QA environments that test multiple audio devices
+- **Continuous Integration**: Systems that run automated tests on audio equipment
+
+### Educational and Shared Environments
+
+- **Computer Labs**: Where multiple identical workstations must maintain the same device configuration
+- **Shared Workstations**: In environments where different users connect various audio devices
+- **Classroom Recording**: Ensuring consistent audio device naming in educational recording setups
+
+### Home and Specialized Uses
+
+- **HTPC/Media Centers**: Home theater PCs that need reliable audio device mapping
+- **Gaming Setups**: When using specific audio devices for gaming that shouldn't change between sessions
+- **Accessibility Solutions**: Systems configured for users with disabilities that rely on specific audio routing
+- **Raspberry Pi Projects**: Small form-factor computers using USB audio where consistent naming is critical
+
+### System Administration
+
+- **Remote Administration**: Simplifying the management of audio devices on remotely administered systems
+- **Hardware Deployment**: Creating consistent configurations across multiple deployed systems
+- **Device Monitoring**: Creating stable device paths for monitoring systems to track
+
+## Common Problems Solved
+
+The USB Audio Mapper addresses several common issues that Linux users face with USB audio devices:
+
+1. **Inconsistent Device Ordering**: 
+   - **Problem**: USB audio devices are assigned card numbers (card0, card1) based on detection order
+   - **Impact**: After a reboot, your USB microphone that was previously card1 might become card2
+   - **Consequence**: Applications configured to use a specific card number stop working
+
+2. **Configuration Persistence**:
+   - **Problem**: Audio settings and configurations often reference specific card names/numbers
+   - **Impact**: When card numbers change, your carefully configured ALSA or PulseAudio settings break
+   - **Consequence**: Requires manual reconfiguration after each device change or reboot
+
+3. **Multiple Identical Devices**:
+   - **Problem**: Two identical USB microphones appear the same to the system
+   - **Impact**: No reliable way to distinguish between them in applications
+   - **Consequence**: Unable to create reliable multi-microphone setups
+
+4. **Application Startup Dependencies**:
+   - **Problem**: Applications that auto-start may initialize before all USB devices are detected
+   - **Impact**: Applications might use the wrong audio device or fail to find expected devices
+   - **Consequence**: Requires manual intervention or complex startup scripts
+
+5. **Hardware Swapping**:
+   - **Problem**: Temporarily disconnecting a device can change the ordering of all other devices
+   - **Impact**: Disconnecting one device can break configurations for all other audio devices
+   - **Consequence**: Makes working with multiple USB audio devices frustrating
+
+USB Audio Mapper solves these issues by creating persistent, reliable device names and paths that remain consistent regardless of connection order or system changes.
+
 ## Features
 
 - Creates comprehensive udev rules for reliable device identification
@@ -242,3 +320,5 @@ The rules are stored in `/etc/udev/rules.d/99-usb-soundcards.rules`, which is pa
 This ensures that no matter when the sound card is connected, it always gets the same consistent name and symlink.
 
 ## License
+
+USB Audio Mapper is licensed under the Apache License 2.0.
