@@ -6,6 +6,15 @@ A Linux utility for creating persistent naming rules for USB audio devices, ensu
 
 USB Audio Mapper creates udev rules to persistently name your USB audio devices in Linux. This solves the common issue where USB audio devices may change names (card0, card1, etc.) when other devices are connected or after reboots, causing configuration and application problems.
 
+## Features
+
+- Creates comprehensive udev rules for reliable device identification
+- Provides persistent device names and symlinks for easy access
+- Handles multiple identical devices correctly by detecting physical USB ports
+- Supports both interactive and non-interactive operation
+- Detects device vendor/product IDs, USB paths, and platform-specific paths
+- Works across different Linux distributions with varying device path formats
+
 ## Common Problems Solved
 
 The USB Audio Mapper addresses several common issues that Linux users face with USB audio devices:
@@ -83,15 +92,6 @@ The USB Audio Mapper is particularly useful in the following scenarios:
 - **Remote Administration**: Simplifying the management of audio devices on remotely administered systems
 - **Hardware Deployment**: Creating consistent configurations across multiple deployed systems
 - **Device Monitoring**: Creating stable device paths for monitoring systems to track
-
-## Features
-
-- Creates comprehensive udev rules for reliable device identification
-- Provides persistent device names and symlinks for easy access
-- Handles multiple identical devices correctly by detecting physical USB ports
-- Supports both interactive and non-interactive operation
-- Detects device vendor/product IDs, USB paths, and platform-specific paths
-- Works across different Linux distributions with varying device path formats
 
 ## Installation
 
