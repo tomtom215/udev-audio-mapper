@@ -46,53 +46,6 @@ The USB Audio Mapper addresses several common issues that Linux users face with 
 
 USB Audio Mapper solves these issues by creating persistent, reliable device names and paths that remain consistent regardless of connection order or system changes.
 
-## Use Cases
-
-The USB Audio Mapper is particularly useful in the following scenarios:
-
-### Professional Audio Production
-
-- **Recording Studios**: When using multiple audio interfaces in professional environments where consistent routing is critical
-- **Live Performance**: For musicians using Linux-based systems where audio devices must maintain the same configuration between shows
-- **Podcasting/Streaming**: Ensuring microphones and mixers maintain consistent device names across recording sessions
-
-### Multi-Device Setups
-
-- **Multiple Identical Devices**: When using several identical USB microphones or interfaces that would otherwise be indistinguishable
-- **Complex Audio Routing**: For setups with multiple input and output devices that need stable device paths
-- **Video Conferencing Systems**: Ensuring the correct microphone is always used regardless of connection order
-
-### Automated Systems
-
-- **Kiosks & Digital Signage**: Systems that must reliably use specific audio hardware after reboots
-- **Unattended Systems**: Servers or appliances that need to automatically recognize the correct audio devices
-- **Embedded Applications**: Industrial control systems or information kiosks with specific audio hardware requirements
-
-### Development and Testing
-
-- **Audio Software Development**: When developing applications that interact with audio hardware
-- **Hardware Testing**: For QA environments that test multiple audio devices
-- **Continuous Integration**: Systems that run automated tests on audio equipment
-
-### Educational and Shared Environments
-
-- **Computer Labs**: Where multiple identical workstations must maintain the same device configuration
-- **Shared Workstations**: In environments where different users connect various audio devices
-- **Classroom Recording**: Ensuring consistent audio device naming in educational recording setups
-
-### Home and Specialized Uses
-
-- **HTPC/Media Centers**: Home theater PCs that need reliable audio device mapping
-- **Gaming Setups**: When using specific audio devices for gaming that shouldn't change between sessions
-- **Accessibility Solutions**: Systems configured for users with disabilities that rely on specific audio routing
-- **Raspberry Pi Projects**: Small form-factor computers using USB audio where consistent naming is critical
-
-### System Administration
-
-- **Remote Administration**: Simplifying the management of audio devices on remotely administered systems
-- **Hardware Deployment**: Creating consistent configurations across multiple deployed systems
-- **Device Monitoring**: Creating stable device paths for monitoring systems to track
-
 ## Installation
 
 1. Download the script:
@@ -318,6 +271,53 @@ The rules are stored in `/etc/udev/rules.d/99-usb-soundcards.rules`, which is pa
 4. Matching devices are named according to our rules before applications access them
 
 This ensures that no matter when the sound card is connected, it always gets the same consistent name and symlink.
+
+## Use Cases
+
+The USB Audio Mapper is particularly useful in the following scenarios:
+
+### Professional Audio Production
+
+- **Recording Studios**: When using multiple audio interfaces in professional environments where consistent routing is critical
+- **Live Performance**: For musicians using Linux-based systems where audio devices must maintain the same configuration between shows
+- **Podcasting/Streaming**: Ensuring microphones and mixers maintain consistent device names across recording sessions
+
+### Multi-Device Setups
+
+- **Multiple Identical Devices**: When using several identical USB microphones or interfaces that would otherwise be indistinguishable
+- **Complex Audio Routing**: For setups with multiple input and output devices that need stable device paths
+- **Video Conferencing Systems**: Ensuring the correct microphone is always used regardless of connection order
+
+### Automated Systems
+
+- **Kiosks & Digital Signage**: Systems that must reliably use specific audio hardware after reboots
+- **Unattended Systems**: Servers or appliances that need to automatically recognize the correct audio devices
+- **Embedded Applications**: Industrial control systems or information kiosks with specific audio hardware requirements
+
+### Development and Testing
+
+- **Audio Software Development**: When developing applications that interact with audio hardware
+- **Hardware Testing**: For QA environments that test multiple audio devices
+- **Continuous Integration**: Systems that run automated tests on audio equipment
+
+### Educational and Shared Environments
+
+- **Computer Labs**: Where multiple identical workstations must maintain the same device configuration
+- **Shared Workstations**: In environments where different users connect various audio devices
+- **Classroom Recording**: Ensuring consistent audio device naming in educational recording setups
+
+### Home and Specialized Uses
+
+- **HTPC/Media Centers**: Home theater PCs that need reliable audio device mapping
+- **Gaming Setups**: When using specific audio devices for gaming that shouldn't change between sessions
+- **Accessibility Solutions**: Systems configured for users with disabilities that rely on specific audio routing
+- **Raspberry Pi Projects**: Small form-factor computers using USB audio where consistent naming is critical
+
+### System Administration
+
+- **Remote Administration**: Simplifying the management of audio devices on remotely administered systems
+- **Hardware Deployment**: Creating consistent configurations across multiple deployed systems
+- **Device Monitoring**: Creating stable device paths for monitoring systems to track
 
 ## License
 
