@@ -1,176 +1,244 @@
-# udev-audio-mapper
+# USB Audio Mapper
 
-A robust Linux bash script that creates persistent names for USB audio devices, ensuring they maintain the same device name across reboots, even when using multiple identical USB sound cards.
+A Linux utility for creating persistent naming rules for USB audio devices, ensuring they maintain consistent names across reboots.
 
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+## Overview
 
-## Problem Solved
-
-If you use multiple USB audio interfaces on Linux, you've likely encountered these frustrating issues:
-- USB sound cards change names (`card0`, `card1`, etc.) after reboots
-- Order changes when plugging/unplugging devices
-- Identical devices are impossible to distinguish reliably
-- Audio applications break when device names change
-
-This script solves these problems by creating udev rules that assign persistent, meaningful names to your USB audio devices based on their physical USB port connection and device attributes.
+USB Audio Mapper creates udev rules to persistently name your USB audio devices in Linux. This solves the common issue where USB audio devices may change names (card0, card1, etc.) when other devices are connected or after reboots, causing configuration and application problems.
 
 ## Features
 
-- **Interactive wizard** guides you through the mapping process
-- **Smart USB port detection** identifies the exact physical port for each device
-- **Handles identical devices** by using USB port path information
-- **Non-interactive mode** for scripting and automation
-- **Testing capability** to verify USB port detection on your system
-- **Enhanced reliability** with multiple detection methods
-- **Detailed logging** and debug options
-- **Robust error handling** to prevent common issues
-
-## Requirements
-
-- Linux system with udev
-- Administrator (root) access
-- Common Linux utilities: `lsusb`, `udevadm`
-- ALSA sound system
+- Creates comprehensive udev rules for reliable device identification
+- Provides persistent device names and symlinks for easy access
+- Handles multiple identical devices correctly by detecting physical USB ports
+- Supports both interactive and non-interactive operation
+- Detects device vendor/product IDs, USB paths, and platform-specific paths
+- Works across different Linux distributions with varying device path formats
 
 ## Installation
 
-1. Clone this repository:
+1. Download the script:
    ```bash
-   git clone https://github.com/tomtom215/usb-soundcard-mapper.git
-   cd usb-soundcard-mapper
+   wget https://example.com/usb_audio_mapper.sh
    ```
 
-2. Make the script executable:
+2. Make it executable:
    ```bash
-   chmod +x usb-soundcard-mapper.sh
+   chmod +x usb_audio_mapper.sh
    ```
 
 ## Usage
 
-### Interactive Mode (Recommended for First-Time Users)
+### Interactive Mode
 
-Run the script without arguments to use the interactive wizard:
-
-```bash
-sudo ./usb-soundcard-mapper.sh
-```
-
-The wizard will:
-1. Display all available sound cards
-2. Guide you through selecting a card to map
-3. Help identify the corresponding USB device
-4. Create a persistent mapping rule
-5. Reload udev rules
-
-### Non-Interactive Mode (For Automation)
-
-Use command-line arguments for scripting or automation:
+Run the script with no arguments to enter interactive mode:
 
 ```bash
-sudo ./usb-soundcard-mapper.sh -n -d "MOVO X1 MINI" -v 2e88 -p 4610 -f movo-x1-mini
+sudo ./usb_audio_mapper.sh
 ```
 
-To include USB port information (recommended for multiple identical devices):
+Follow the prompts to:
+1. Select a sound card from the detected USB audio devices
+2. Confirm the corresponding USB device
+3. Enter a friendly name for the device (lowercase letters, numbers, and hyphens only)
+4. Optionally reboot to apply the changes
+
+### Non-Interactive Mode
+
+For scripting or automating device naming:
 
 ```bash
-sudo ./usb-soundcard-mapper.sh -n -d "MOVO X1 MINI" -v 2e88 -p 4610 -u "usb-3.4" -f movo-x1-mini
+sudo ./usb_audio_mapper.sh -n -d "DEVICE_NAME" -v VENDOR_ID -p PRODUCT_ID -f FRIENDLY_NAME
 ```
 
-### Test USB Port Detection
+Required parameters:
+- `-d` : Device name (descriptive, for logging only)
+- `-v` : Vendor ID (4-digit hex)
+- `-p` : Product ID (4-digit hex)
+- `-f` : Friendly name (will be used in device paths)
 
-Verify that USB port detection works correctly on your system:
+Optional parameters:
+- `-u` : USB port path (helps with multiple identical devices)
 
+Example:
 ```bash
-sudo ./usb-soundcard-mapper.sh -t
+sudo ./usb_audio_mapper.sh -n -d "MOVO X1 MINI" -v 2e88 -p 4610 -f movo-mic
 ```
 
-### Command-Line Options
+### Additional Options
 
-| Option | Description |
-|--------|-------------|
-| `-i, --interactive` | Run in interactive mode (default) |
-| `-n, --non-interactive` | Run in non-interactive mode |
-| `-d, --device NAME` | Device name (for logging only) |
-| `-v, --vendor ID` | Vendor ID (4-digit hex) |
-| `-p, --product ID` | Product ID (4-digit hex) |
-| `-u, --usb-port PORT` | USB port path (for identical devices) |
-| `-f, --friendly NAME` | Friendly name to assign |
-| `-t, --test` | Test USB port detection |
-| `-D, --debug` | Enable debug output |
-| `-h, --help` | Show help information |
+- `-t, --test` : Test USB port detection only
+- `-D, --debug` : Enable debug output for troubleshooting
+- `-h, --help` : Display help information
 
-## How It Works
+## Validation
 
-The script performs these key operations:
+After running the script and rebooting, verify the mapping worked by:
 
-1. **Detection**: Identifies USB sound cards in your system using ALSA and USB subsystem info
-2. **Port Identification**: Uses multiple methods to determine the physical USB port for each device
-3. **Rule Creation**: Generates udev rules that map specific devices to user-defined names
-4. **Rule Installation**: Places the rules in `/etc/udev/rules.d/99-usb-soundcards.rules`
-5. **Activation**: Reloads udev rules to apply changes
+1. Checking the sound card list:
+   ```bash
+   cat /proc/asound/cards
+   ```
+   Your device should appear with the friendly name you chose.
 
-After mapping, your sound card will consistently appear with the specified name regardless of the order devices are connected or system reboots.
+2. Listing ALSA devices:
+   ```bash
+   arecord -l  # For input devices
+   aplay -l    # For output devices
+   ```
 
-## Advanced Port Detection
+3. Verifying the udev rules:
+   ```bash
+   sudo cat /etc/udev/rules.d/99-usb-soundcards.rules
+   ```
+   Should show three rule types for your device.
 
-The script uses several detection methods to achieve high reliability:
-
-1. Direct ALSA information retrieval
-2. USB device path analysis through sysfs
-3. USB topology examination
-4. udevadm information gathering
-5. Serial number and device attribute correlation
-
-This multi-layered approach ensures reliable mapping even on systems with complex USB configurations.
+4. Checking the symlink was created:
+   ```bash
+   ls -la /dev/sound/by-id/
+   ```
+   Should show a symlink with your friendly name.
 
 ## Troubleshooting
 
-### Port Detection Issues
+### Device Not Being Renamed
 
-If the port detection test shows failures:
+1. Check the udev rules were created:
+   ```bash
+   sudo cat /etc/udev/rules.d/99-usb-soundcards.rules
+   ```
 
-```bash
-sudo ./usb-soundcard-mapper.sh -t -D
-```
+2. Reload the udev rules manually:
+   ```bash
+   sudo udevadm control --reload-rules
+   sudo udevadm trigger
+   ```
 
-The `-D` flag enables detailed debug output to help identify the issue.
+3. Verify the device information matches your actual device:
+   ```bash
+   lsusb
+   ```
+   Check that the vendor and product IDs in the rule match the actual device.
 
-### Rule Verification
+4. Run the script with debug logging:
+   ```bash
+   sudo ./usb_audio_mapper.sh -D
+   ```
 
-To verify that your rules were created correctly:
+### Multiple Identical Devices
 
-```bash
-sudo cat /etc/udev/rules.d/99-usb-soundcards.rules
-```
+If you have multiple identical USB audio devices:
 
-### Device Listing
+1. Run the script in interactive mode for each device
+2. Physically connect devices one at a time and run the script for each
+3. Use the `-u` option with the USB port path when running in non-interactive mode
 
-List your mapped sound devices:
+### Path Identification Issues
 
-```bash
-aplay -l
-```
+For more complex setups or problematic devices:
 
-## Use Cases
+1. Test port detection capability:
+   ```bash
+   sudo ./usb_audio_mapper.sh -t
+   ```
 
-- **Audio Production**: Ensure your audio interfaces always connect to the same device names
-- **Streaming Setups**: Maintain consistent device names for broadcasting software
-- **Multi-Interface Setups**: Reliably identify multiple identical devices
-- **Embedded Systems**: Ensure predictable device names in headless applications
-- **Automated Installations**: Script the configuration of audio devices
+2. Get detailed device information and check sysfs paths:
+   ```bash
+   sudo udevadm info -a -n /dev/snd/controlC0
+   ```
+   (Replace `controlC0` with your device number)
 
+3. Monitor udev events when plugging in the device:
+   ```bash
+   sudo udevadm monitor --environment
+   ```
 
-For a deeper technical explanation, see [DOCUMENTATION.md](DOCUMENTATION.md).
+## Uninstallation
 
-## Contributing
+To remove the persistent naming rules:
 
-Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for details.
+1. Delete the udev rules file:
+   ```bash
+   sudo rm /etc/udev/rules.d/99-usb-soundcards.rules
+   ```
+
+2. Reload udev rules:
+   ```bash
+   sudo udevadm control --reload-rules
+   ```
+
+3. Reboot to restore default device naming:
+   ```bash
+   sudo reboot
+   ```
+
+## How It Works
+
+### Linux Device Management and udev
+
+In Linux, when devices are connected, the kernel detects them and creates device nodes in the `/dev` directory. The udev system (part of systemd in modern distributions) manages these device nodes dynamically.
+
+Without persistence rules, ALSA (Advanced Linux Sound Architecture) assigns sound card indices (0, 1, 2...) based on the order of detection, which can change between reboots or when devices are added/removed.
+
+### udev Rules Mechanism
+
+The udev system uses rules files (stored in `/etc/udev/rules.d/` and `/usr/lib/udev/rules.d/`) to determine how to name and configure devices. Rules are processed in lexicographical order by filename, which is why this script creates a file named `99-usb-soundcards.rules` to ensure it runs after standard rules.
+
+When a device event occurs (like plugging in a USB sound card), udev:
+1. Gathers all attributes of the device
+2. Processes all rules in order
+3. Applies matching rules to configure the device
+
+### Rule Types and Matching
+
+The script creates three types of udev rules for maximum compatibility:
+
+1. **Vendor/Product ID rule**:
+   ```
+   SUBSYSTEM=="sound", ATTRS{idVendor}=="XXXX", ATTRS{idProduct}=="YYYY", SYMLINK+="sound/by-id/friendly-name", ATTR{id}="friendly-name"
+   ```
+   - Matches any sound device with specific vendor and product IDs
+   - Uses the ATTRS{} operator which searches up the device chain (parent devices)
+   - Provides a baseline match for the device type
+
+2. **USB Path rule**:
+   ```
+   SUBSYSTEM=="sound", KERNELS=="usb-X.Y", ATTRS{idVendor}=="XXXX", ATTRS{idProduct}=="YYYY", SYMLINK+="sound/by-id/friendly-name", ATTR{id}="friendly-name"
+   ```
+   - KERNELS matches against the device path in the kernel
+   - Includes the physical USB port information (X.Y represents port numbers)
+   - Can distinguish between identical devices in different USB ports
+
+3. **Platform Path rule**:
+   ```
+   SUBSYSTEM=="sound", ENV{ID_PATH}=="platform-controller-usb-0:X.Y:1.0", ATTRS{idVendor}=="XXXX", ATTRS{idProduct}=="YYYY", SYMLINK+="sound/by-id/friendly-name", ATTR{id}="friendly-name"
+   ```
+   - Uses ENV{ID_PATH} which contains a complete platform-specific path
+   - Provides the most specific matching for the exact hardware path
+   - Works reliably even with complex USB topologies (hubs, etc.)
+
+### Actions and Persistence
+
+When a rule matches, it performs two key actions:
+
+1. **ATTR{id}="friendly-name"** - This sets the ALSA card ID, which is what appears in `/proc/asound/cards` and is used by ALSA applications.
+
+2. **SYMLINK+="sound/by-id/friendly-name"** - This creates a persistent symlink in `/dev/sound/by-id/` pointing to the actual device node, providing a stable path for applications to use.
+
+These settings persist across reboots because:
+- The rules file is stored in `/etc/udev/rules.d/` which survives reboots
+- Every time the device is connected, udev processes these rules again
+- The same friendly name is always assigned regardless of when the device is detected
+
+### Rule Storage and System Integration
+
+The rules are stored in `/etc/udev/rules.d/99-usb-soundcards.rules`, which is part of the system configuration that persists across reboots. When the system starts up or when devices are hot-plugged:
+
+1. The kernel detects hardware and creates uevent messages
+2. udevd (the udev daemon) receives these events
+3. udevd processes all rules, including our custom rules
+4. Matching devices are named according to our rules before applications access them
+
+This ensures that no matter when the sound card is connected, it always gets the same consistent name and symlink.
 
 ## License
-
-This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
-
-## Acknowledgments
-
-- Inspired by issues faced by audio professionals and content creators using Linux
-- Thanks to the ALSA and udev developers for creating the underlying systems
