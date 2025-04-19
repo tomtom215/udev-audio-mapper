@@ -1,10 +1,8 @@
 #!/bin/bash
 # usb-soundcard-mapper.sh - Automatically map USB sound cards to persistent names
 #
-# This script automates the process of creating udev rules for USB sound cards
-# to ensure they maintain consistent names across reboots.
-# Enhanced version with better USB physical port detection for handling multiple
-# identical devices.
+# This script creates udev rules for USB sound cards to ensure they maintain 
+# consistent names across reboots, with symlinks for easy access.
 
 # Function to print error messages and exit
 error_exit() {
@@ -132,7 +130,7 @@ prompt_reboot() {
     fi
 }
 
-# NEW FUNCTION: Test if a string is valid USB path
+# Function to check if a string is valid USB path
 is_valid_usb_path() {
     local path="$1"
     
@@ -149,7 +147,7 @@ is_valid_usb_path() {
     fi
 }
 
-# NEW FUNCTION: Get USB physical port path for a device
+# Function to get USB physical port path for a device
 get_usb_physical_port() {
     local bus_num="$1"
     local dev_num="$2"
@@ -181,7 +179,6 @@ get_usb_physical_port() {
     
     debug "Checking sysfs path: $sysfs_path"
     
-    # ALWAYS create a unique device identifier - based on multiple identifiers
     # Create variables to build a unique identifier
     local base_port_path=""
     local serial=""
@@ -360,7 +357,84 @@ get_usb_physical_port() {
     return 0
 }
 
-# NEW FUNCTION: Test USB port detection
+# Function to get platform path for ID_PATH rule
+get_platform_id_path() {
+    local bus_num="$1"
+    local dev_num="$2"
+    local usb_path="$3"
+    local card_num="$4"
+    
+    # Try to get ID_PATH from udevadm
+    local id_path=""
+    local dev_path="/dev/bus/usb/$bus_num/$dev_num"
+    
+    if [ -e "$dev_path" ]; then
+        local udevadm_output
+        udevadm_output=$(udevadm info -n "$dev_path" --query=property 2>/dev/null)
+        
+        # Extract ID_PATH if available
+        id_path=$(echo "$udevadm_output" | grep -m1 "ID_PATH=" | cut -d= -f2)
+        
+        if [ -n "$id_path" ]; then
+            debug "Found ID_PATH from udevadm: $id_path"
+            echo "$id_path"
+            return 0
+        fi
+    fi
+    
+    # Alternative method: Try to extract platform path from sound card device
+    if [ -n "$card_num" ]; then
+        local card_dev_path="/dev/snd/controlC$card_num"
+        if [ -e "$card_dev_path" ]; then
+            local card_udevadm_output
+            card_udevadm_output=$(udevadm info -n "$card_dev_path" --query=property 2>/dev/null)
+            
+            # Extract ID_PATH if available
+            id_path=$(echo "$card_udevadm_output" | grep -m1 "ID_PATH=" | cut -d= -f2)
+            
+            if [ -n "$id_path" ]; then
+                debug "Found ID_PATH from sound card device: $id_path"
+                echo "$id_path"
+                return 0
+            fi
+        fi
+    fi
+    
+    # Reconstruct platform path from USB path if we have it
+    if [ -n "$usb_path" ]; then
+        # Extract the port numbers from usb-X.Y format
+        if [[ "$usb_path" =~ usb-([0-9]+\.[0-9]+) ]]; then
+            local port_nums="${BASH_REMATCH[1]}"
+            
+            # Look for platform identifiers in sysfs paths
+            for platform_path in /sys/bus/usb/devices/usb*; do
+                if [ -d "$platform_path" ]; then
+                    local platform_id=$(basename $(dirname "$platform_path"))
+                    if [[ "$platform_id" == *"usb"* ]]; then
+                        # Construct a platform-style path
+                        echo "platform-${platform_id}-usb-0:${port_nums}:1.0"
+                        return 0
+                    fi
+                fi
+            done
+            
+            # Fallback: Check all USB controller devices
+            for platform_dev in /sys/bus/platform/devices/*.usb; do
+                if [ -d "$platform_dev" ]; then
+                    local platform_id=$(basename "$platform_dev")
+                    # Construct a platform-style path
+                    echo "platform-${platform_id}-usb-0:${port_nums}:1.0"
+                    return 0
+                fi
+            done
+        fi
+    fi
+    
+    # If we still can't get it, return empty
+    return 1
+}
+
+# Function to test USB port detection
 test_usb_port_detection() {
     info "Testing USB port detection..."
     
@@ -453,11 +527,19 @@ test_usb_port_detection() {
             port_path=$(get_usb_physical_port "$bus_num" "$dev_num")
             local result=$?
             
+            # Try to get platform ID path
+            local platform_path
+            platform_path=$(get_platform_id_path "$bus_num" "$dev_num" "$port_path")
+            
             # Restore debug setting
             DEBUG="$old_debug"
             
             if [ $result -eq 0 ] && [ -n "$port_path" ]; then
-                echo "Device on Bus $bus_num Device $dev_num: Port path = $port_path"
+                echo "Device on Bus $bus_num Device $dev_num:"
+                echo "  USB Port path = $port_path"
+                if [ -n "$platform_path" ]; then
+                    echo "  Platform ID_PATH = $platform_path"
+                fi
                 success_count=$((success_count + 1))
             else
                 echo "Device on Bus $bus_num Device $dev_num: Could not determine port path"
@@ -480,7 +562,7 @@ test_usb_port_detection() {
     fi
 }
 
-# Enhanced function to get more detailed card info including port path
+# Function to get more detailed card info including port path
 get_detailed_card_info() {
     local card_num="$1"
     
@@ -504,6 +586,7 @@ get_detailed_card_info() {
     local physical_port=""
     local vendor_id=""
     local product_id=""
+    local platform_id_path=""
     
     # Try to get USB bus and device number directly from ALSA
     if [ -f "${card_dir}/usbbus" ]; then
@@ -526,23 +609,64 @@ get_detailed_card_info() {
         fi
     fi
     
-    # If we have both bus and device number, try to get the physical port
+    # Try to get the USB path from the cards file
+    local card_usb_path=""
+    local cards_output=$(cat "/proc/asound/cards")
+    while IFS= read -r line; do
+        if [[ "$line" =~ ^\ *$card_num\ .*at\ (usb-[^ ,]+) ]]; then
+            card_usb_path="${BASH_REMATCH[1]}"
+            info "Found USB path from cards file: $card_usb_path"
+            
+            # Extract simplified USB path for rule creation
+            if [[ "$card_usb_path" =~ usb-([0-9]+\.[0-9]+) ]]; then
+                physical_port="usb-${BASH_REMATCH[1]}"
+                info "Extracted simplified USB path: $physical_port"
+            else
+                physical_port="$card_usb_path"
+            fi
+            break
+        fi
+    done <<< "$cards_output"
+    
+    # If we have both bus and device number, try to get additional information
     if [ -n "$bus_num" ] && [ -n "$dev_num" ]; then
         info "Using direct ALSA info: bus=$bus_num, device=$dev_num"
-        physical_port=$(get_usb_physical_port "$bus_num" "$dev_num")
-        if [ -n "$physical_port" ]; then
-            info "USB physical port: $physical_port"
-            
-            echo "USB Device Information for card $card_num:"
-            echo "  Bus: $bus_num"
-            echo "  Device: $dev_num"
-            echo "  Physical Port: $physical_port"
-            [ -n "$vendor_id" ] && echo "  Vendor ID: $vendor_id"
-            [ -n "$product_id" ] && echo "  Product ID: $product_id"
-            echo
-            
-            return 0
+        
+        # Try to get platform ID path
+        platform_id_path=$(get_platform_id_path "$bus_num" "$dev_num" "$physical_port" "$card_num")
+        if [ -n "$platform_id_path" ]; then
+            info "Found platform ID path: $platform_id_path"
         fi
+        
+        # Only get the physical port if we don't already have it from cards file
+        if [ -z "$physical_port" ]; then
+            physical_port=$(get_usb_physical_port "$bus_num" "$dev_num")
+            if [ -n "$physical_port" ]; then
+                info "USB physical port: $physical_port"
+            fi
+        fi
+        
+        echo "USB Device Information for card $card_num:"
+        echo "  Bus: $bus_num"
+        echo "  Device: $dev_num"
+        [ -n "$physical_port" ] && echo "  USB Path: $physical_port"
+        [ -n "$platform_id_path" ] && echo "  Platform ID Path: $platform_id_path"
+        [ -n "$vendor_id" ] && echo "  Vendor ID: $vendor_id"
+        [ -n "$product_id" ] && echo "  Product ID: $product_id"
+        echo
+        
+        return 0
+    fi
+    
+    # If we have the USB path from the cards file but not bus/dev, that's still success
+    if [ -n "$physical_port" ]; then
+        echo "USB Device Information for card $card_num:"
+        [ -n "$physical_port" ] && echo "  USB Path: $physical_port"
+        [ -n "$vendor_id" ] && echo "  Vendor ID: $vendor_id"
+        [ -n "$product_id" ] && echo "  Product ID: $product_id"
+        echo
+        
+        return 0
     fi
     
     # If direct approach failed, try using device nodes
@@ -612,12 +736,22 @@ get_detailed_card_info() {
                             fi
                         fi
                         
-                        # Try to get physical port again with the new bus/dev
-                        physical_port=$(get_usb_physical_port "$bus_num" "$dev_num")
-                        if [ -n "$physical_port" ]; then
-                            info "USB physical port: $physical_port"
-                            break
+                        # Try to get platform ID path
+                        if [ -z "$platform_id_path" ]; then
+                            platform_id_path=$(get_platform_id_path "$bus_num" "$dev_num" "$physical_port" "$card_num")
+                            if [ -n "$platform_id_path" ]; then
+                                info "Found platform ID path: $platform_id_path"
+                            fi
                         fi
+                        
+                        # Try to get physical port again with the new bus/dev
+                        if [ -z "$physical_port" ]; then
+                            physical_port=$(get_usb_physical_port "$bus_num" "$dev_num")
+                            if [ -n "$physical_port" ]; then
+                                info "USB physical port: $physical_port"
+                            fi
+                        fi
+                        break
                     fi
                 else
                     debug "Device node $dev_node does not exist"
@@ -626,25 +760,19 @@ get_detailed_card_info() {
         fi
     done
     
-    # If we found the bus and device, but not the port, try one more approach
-    if [ -n "$bus_num" ] && [ -n "$dev_num" ] && [ -z "$physical_port" ]; then
-        # Try with direct sysfs access
-        info "Trying with direct sysfs access..."
-        physical_port=$(get_usb_physical_port "$bus_num" "$dev_num")
-    fi
-    
     # Output the information we found
-    if [ -n "$bus_num" ] || [ -n "$dev_num" ] || [ -n "$physical_port" ] || [ -n "$vendor_id" ] || [ -n "$product_id" ]; then
+    if [ -n "$bus_num" ] || [ -n "$dev_num" ] || [ -n "$physical_port" ] || [ -n "$platform_id_path" ] || [ -n "$vendor_id" ] || [ -n "$product_id" ]; then
         echo "USB Device Information for card $card_num:"
         [ -n "$bus_num" ] && echo "  Bus: $bus_num"
         [ -n "$dev_num" ] && echo "  Device: $dev_num"
-        [ -n "$physical_port" ] && echo "  Physical Port: $physical_port"
+        [ -n "$physical_port" ] && echo "  USB Path: $physical_port"
+        [ -n "$platform_id_path" ] && echo "  Platform ID Path: $platform_id_path"
         [ -n "$vendor_id" ] && echo "  Vendor ID: $vendor_id"
         [ -n "$product_id" ] && echo "  Product ID: $product_id"
         echo
         
-        # If we at least have bus and device, return success
-        if [ -n "$bus_num" ] && [ -n "$dev_num" ]; then
+        # If we at least have usb path or bus and device, return success
+        if [ -n "$physical_port" ] || ([ -n "$bus_num" ] && [ -n "$dev_num" ]); then
             return 0
         fi
     fi
@@ -708,6 +836,9 @@ interactive_mapping() {
         fi
     fi
     
+    # Get platform ID path if available
+    local platform_id_path=""
+    
     # Try to get detailed card info including USB device path
     get_detailed_card_info "$card_num"
     
@@ -737,6 +868,8 @@ interactive_mapping() {
     
     # Extract bus and device numbers for port identification
     local physical_port=""
+    local simple_port=""
+    
     if [[ "$usb_line" =~ Bus\ ([0-9]{3})\ Device\ ([0-9]{3}) ]]; then
         bus_num="${BASH_REMATCH[1]}"
         dev_num="${BASH_REMATCH[2]}"
@@ -749,16 +882,32 @@ interactive_mapping() {
         echo "Product ID: $product_id"
         echo "Bus: $bus_num, Device: $dev_num"
         
+        # Try to get platform ID path
+        platform_id_path=$(get_platform_id_path "$bus_num" "$dev_num" "$card_device_info" "$card_num")
+        if [ -n "$platform_id_path" ]; then
+            echo "Platform ID path: $platform_id_path"
+        fi
+        
         # Get physical port path - but prefer the one from card info if available
         if [ -z "$card_device_info" ]; then
             physical_port=$(get_usb_physical_port "$bus_num" "$dev_num")
             if [ -n "$physical_port" ]; then
                 echo "USB physical port: $physical_port"
+                
+                # Extract simplified port
+                if [[ "$physical_port" =~ ([0-9]+-[0-9]+(\.[0-9]+)*) ]]; then
+                    simple_port="${BASH_REMATCH[1]}"
+                elif [[ "$physical_port" =~ usb-([0-9]+\.[0-9]+) ]]; then
+                    simple_port="usb-${BASH_REMATCH[1]}"
+                else
+                    simple_port="$physical_port"
+                fi
             else
                 warning "Could not determine physical USB port. Using device ID only for mapping."
                 
                 # Always create a unique identifier even without port detection
                 physical_port="usb-fallback-bus${bus_num}-dev${dev_num}-${RANDOM}"
+                simple_port="$physical_port"
                 echo "Created fallback identifier: $physical_port"
                 
                 # Ask if user wants to continue with this fallback
@@ -773,12 +922,21 @@ interactive_mapping() {
         else
             # Use the path from card info instead - this is more reliable!
             physical_port="$card_device_info"
+            
+            # Extract simplified port
+            if [[ "$card_device_info" =~ usb-([0-9]+\.[0-9]+) ]]; then
+                simple_port="usb-${BASH_REMATCH[1]}"
+            else
+                simple_port="$card_device_info"
+            fi
+            
             echo "Using USB path from card info: $physical_port"
         fi
     else
         warning "Could not extract bus and device numbers. This may affect rule creation."
         # Create a fallback unique identifier
         physical_port="usb-fallback-${RANDOM}-${RANDOM}"
+        simple_port="$physical_port"
         echo "Created emergency fallback identifier: $physical_port"
     fi
     
@@ -799,100 +957,30 @@ interactive_mapping() {
     # Check existing rules
     check_existing_rules
     
-    # Create the rule - offer more options with port detection
-    echo
-    echo "Ready to create udev rule. Choose rule type:"
-    echo "1. Basic rule (by vendor and product ID only)"
-    echo "2. Enhanced rule (by vendor, product ID, and USB port path) - RECOMMENDED"
-    echo "3. Strict rule (require exact match of vendor, product, and port)"
-    read rule_type
-    
+    # Create rule file
     rules_file="/etc/udev/rules.d/99-usb-soundcards.rules"
     mkdir -p /etc/udev/rules.d/
     
-    # Extract a simplified port pattern for more reliable matching
-    local simple_port_pattern=""
-    if [ -n "$physical_port" ]; then
-        # First, prefer to use the card_device_info directly
-        if [ -n "$card_device_info" ]; then
-            simple_port_pattern="$card_device_info"
-            info "Using card device info for matching: $simple_port_pattern"
-        # Otherwise try to extract a simple pattern from the physical_port
-        elif [[ "$physical_port" =~ ([0-9]+-[0-9]+(\.[0-9]+)*) ]]; then
-            simple_port_pattern="${BASH_REMATCH[1]}"
-            info "Extracted simple port pattern: $simple_port_pattern"
-        else
-            simple_port_pattern="$physical_port"
-            info "Using full physical port: $simple_port_pattern"
-        fi
+    # Create comprehensive rule set
+    echo "Creating comprehensive mapping rules..."
+    
+    # Write the comment header
+    echo "# USB Sound Card: $card_name" >> "$rules_file"
+    
+    # Write the basic rule by vendor/product ID first
+    echo "SUBSYSTEM==\"sound\", ATTRS{idVendor}==\"$vendor_id\", ATTRS{idProduct}==\"$product_id\", SYMLINK+=\"sound/by-id/$friendly_name\", ATTR{id}=\"$friendly_name\"" >> "$rules_file"
+    
+    # Write the rule with device path if available
+    if [ -n "$simple_port" ]; then
+        echo "# Alternative rule with device path" >> "$rules_file"
+        echo "SUBSYSTEM==\"sound\", KERNELS==\"$simple_port\", ATTRS{idVendor}==\"$vendor_id\", ATTRS{idProduct}==\"$product_id\", SYMLINK+=\"sound/by-id/$friendly_name\", ATTR{id}=\"$friendly_name\"" >> "$rules_file"
     fi
     
-    case "$rule_type" in
-        1)
-            echo "Creating basic rule..."
-            echo "# USB Sound Card: $card_name" >> "$rules_file"
-            echo "SUBSYSTEM==\"sound\", ATTRS{idVendor}==\"$vendor_id\", ATTRS{idProduct}==\"$product_id\", ATTR{id}=\"$friendly_name\"" >> "$rules_file"
-            ;;
-        2)
-            echo "Creating enhanced rule with port matching..."
-            # Create a uniqueness tag with timestamp to ensure truly unique identification
-            local uniqueness_tag=$(date +%s%N | md5sum | head -c 6)
-            
-            # If we have the actual card device info, create a direct matching rule first
-            if [ -n "$card_device_info" ]; then
-                echo "# USB Sound Card: $card_name" >> "$rules_file"
-                echo "# Device info: $card_device_info" >> "$rules_file"
-                echo "# Uniqueness tag: $uniqueness_tag" >> "$rules_file"
-                
-                # First - create a rule with the exact path as seen in cards file
-                echo "SUBSYSTEM==\"sound\", KERNELS==\"*${card_device_info}*\", ATTRS{idVendor}==\"$vendor_id\", ATTRS{idProduct}==\"$product_id\", ATTR{id}=\"$friendly_name\"" >> "$rules_file"
-                
-                # Next - create a rule with a more generalized pattern
-                if [[ "$card_device_info" =~ usb-[0-9a-f:.]+-([0-9]+\.[0-9]+) ]]; then
-                    local port_numbers="${BASH_REMATCH[1]}"
-                    echo "# Alternative matching rule with port numbers only" >> "$rules_file"
-                    echo "SUBSYSTEM==\"sound\", KERNELS==\"*${port_numbers}*\", ATTRS{idVendor}==\"$vendor_id\", ATTRS{idProduct}==\"$product_id\", ATTR{id}=\"$friendly_name\"" >> "$rules_file"
-                fi
-            elif [ -n "$simple_port_pattern" ]; then
-                # Create a rule using the simplified port pattern for better matching
-                echo "# USB Sound Card: $card_name" >> "$rules_file"
-                echo "# Port pattern: $simple_port_pattern (original: $physical_port)" >> "$rules_file"
-                echo "# Uniqueness tag: $uniqueness_tag" >> "$rules_file"
-                echo "SUBSYSTEM==\"sound\", KERNELS==\"*${simple_port_pattern}*\", ATTRS{idVendor}==\"$vendor_id\", ATTRS{idProduct}==\"$product_id\", ATTR{id}=\"$friendly_name\"" >> "$rules_file"
-            else
-                # If no reliable port information, fall back to basic rule
-                warning "No reliable port patterns available. Falling back to basic rule."
-                echo "# USB Sound Card: $card_name (no reliable port info available)" >> "$rules_file"
-                echo "# Uniqueness tag: $uniqueness_tag" >> "$rules_file"
-                echo "SUBSYSTEM==\"sound\", ATTRS{idVendor}==\"$vendor_id\", ATTRS{idProduct}==\"$product_id\", ATTR{id}=\"$friendly_name\"" >> "$rules_file"
-            fi
-            ;;
-        3)
-            echo "Creating strict rule with exact port matching..."
-            if [ -n "$card_device_info" ]; then
-                # Create a uniqueness tag with timestamp to ensure truly unique identification
-                local uniqueness_tag=$(date +%s%N | md5sum | head -c 6)
-                
-                echo "# USB Sound Card: $card_name (strict matching)" >> "$rules_file"
-                echo "# Device info: $card_device_info" >> "$rules_file"
-                echo "# Uniqueness tag: $uniqueness_tag" >> "$rules_file"
-                echo "SUBSYSTEM==\"sound\", KERNELS==\"${card_device_info}\", ATTRS{idVendor}==\"$vendor_id\", ATTRS{idProduct}==\"$product_id\", ATTR{id}=\"$friendly_name\"" >> "$rules_file"
-            elif [ -n "$simple_port_pattern" ]; then
-                # Create a uniqueness tag with timestamp to ensure truly unique identification
-                local uniqueness_tag=$(date +%s%N | md5sum | head -c 6)
-                
-                echo "# USB Sound Card: $card_name" >> "$rules_file"
-                echo "# Port pattern: $simple_port_pattern (strict matching)" >> "$rules_file"
-                echo "# Uniqueness tag: $uniqueness_tag" >> "$rules_file"
-                echo "SUBSYSTEM==\"sound\", KERNELS==\"${simple_port_pattern}\", ATTRS{idVendor}==\"$vendor_id\", ATTRS{idProduct}==\"$product_id\", ATTR{id}=\"$friendly_name\"" >> "$rules_file"
-            else
-                error_exit "Cannot create strict rule without reliable port information."
-            fi
-            ;;
-        *)
-            error_exit "Invalid rule type selection."
-            ;;
-    esac
+    # Write the rule with platform ID_PATH if available
+    if [ -n "$platform_id_path" ]; then
+        echo "# Another alternative without wildcards" >> "$rules_file"
+        echo "SUBSYSTEM==\"sound\", ENV{ID_PATH}==\"$platform_id_path\", ATTRS{idVendor}==\"$vendor_id\", ATTRS{idProduct}==\"$product_id\", SYMLINK+=\"sound/by-id/$friendly_name\", ATTR{id}=\"$friendly_name\"" >> "$rules_file"
+    fi
     
     if [ $? -ne 0 ]; then
         error_exit "Failed to write to $rules_file."
@@ -907,7 +995,7 @@ interactive_mapping() {
     success "Sound card mapping created successfully."
 }
 
-# Enhanced non-interactive mapping function
+# Non-interactive mapping function
 non_interactive_mapping() {
     local device_name="$1"
     local vendor_id="$2"
@@ -936,6 +1024,8 @@ non_interactive_mapping() {
     info "Looking for device in current system..."
     local found_card=""
     local card_device_info=""
+    local simple_port=""
+    local platform_id_path=""
     
     # Get sound card information
     cards_file="/proc/asound/cards"
@@ -950,38 +1040,60 @@ non_interactive_mapping() {
                 if [[ "$line" =~ at\ (usb-[^ ,]+) ]]; then
                     card_device_info="${BASH_REMATCH[1]}"
                     info "Found actual USB path: $card_device_info"
+                    
+                    # Extract simplified port
+                    if [[ "$card_device_info" =~ usb-([0-9]+\.[0-9]+) ]]; then
+                        simple_port="usb-${BASH_REMATCH[1]}"
+                    else
+                        simple_port="$card_device_info"
+                    fi
+                    
+                    # Try to extract card number
+                    if [[ "$line" =~ ^\ *([0-9]+) ]]; then
+                        local card_num="${BASH_REMATCH[1]}"
+                        info "Found card number: $card_num"
+                        
+                        # Try to get bus and device from detailed info
+                        get_detailed_card_info "$card_num"
+                    fi
                 fi
                 break
             fi
         done < "$cards_file"
     fi
     
-    # Extract a simplified port pattern for more reliable matching
-    local simple_port_pattern=""
+    # If port was provided, use it or extract a simplified port pattern
     if [ -n "$port" ]; then
         # Check if port is valid
         if is_valid_usb_path "$port"; then
-            # Extract just the basic port numbers for better matching
-            if [[ "$port" =~ ([0-9]+-[0-9]+(\.[0-9]+)*) ]]; then
-                simple_port_pattern="${BASH_REMATCH[1]}"
-                info "Extracted simple port pattern from provided port: $simple_port_pattern"
+            card_device_info="$port"
+            
+            # Extract simplified port pattern for better matching
+            if [[ "$port" =~ usb-([0-9]+\.[0-9]+) ]]; then
+                simple_port="usb-${BASH_REMATCH[1]}"
+                info "Extracted simple port pattern from provided port: $simple_port"
             else
-                simple_port_pattern="$port"
-                info "Using provided port as pattern: $simple_port_pattern"
+                simple_port="$port"
+                info "Using provided port as pattern: $simple_port"
             fi
         else
             warning "Provided USB port path '$port' appears invalid. Looking for alternatives."
         fi
     fi
     
-    # If no valid port pattern from command line, but we found one from card info, use that
-    if [ -z "$simple_port_pattern" ] && [ -n "$card_device_info" ]; then
-        if [[ "$card_device_info" =~ (usb-[0-9]+:[0-9]+\.[0-9]+(-[0-9]+(\.[0-9]+)*)) ]]; then
-            simple_port_pattern="${BASH_REMATCH[1]}"
-            info "Using port pattern from found card: $simple_port_pattern"
-        else
-            simple_port_pattern="$card_device_info"
-            info "Using device info as port pattern: $simple_port_pattern"
+    # Try to find the device in lsusb to get bus and device number
+    local bus_num=""
+    local dev_num=""
+    lsusb_output=$(lsusb)
+    if [[ "$lsusb_output" =~ Bus\ ([0-9]{3})\ Device\ ([0-9]{3}):\ ID\ $vendor_id:$product_id ]]; then
+        bus_num=$(echo "${BASH_REMATCH[1]}" | sed 's/^0*//')
+        dev_num=$(echo "${BASH_REMATCH[2]}" | sed 's/^0*//')
+        info "Found device in lsusb: bus=$bus_num, dev=$dev_num"
+        
+        # Try to get platform ID path
+        platform_id_path=$(get_platform_id_path "$bus_num" "$dev_num" "$simple_port")
+        if [ -n "$platform_id_path" ]; then
+            info "Found platform ID path: $platform_id_path"
         fi
     fi
     
@@ -991,27 +1103,22 @@ non_interactive_mapping() {
     rules_file="/etc/udev/rules.d/99-usb-soundcards.rules"
     mkdir -p /etc/udev/rules.d/
     
-    # Create uniqueness tag
-    local uniqueness_tag=$(date +%s%N | md5sum | head -c 6)
+    # Create or append to rules file with comprehensive rules
+    echo "# USB Sound Card: $device_name" >> "$rules_file"
     
-    # Create or append to rules file
-    if [ -z "$simple_port_pattern" ]; then
-        info "Creating basic rule (no reliable port information available)..."
-        echo "# USB Sound Card: $device_name" >> "$rules_file"
-        echo "# Uniqueness tag: $uniqueness_tag" >> "$rules_file"
-        echo "SUBSYSTEM==\"sound\", ATTRS{idVendor}==\"$vendor_id\", ATTRS{idProduct}==\"$product_id\", ATTR{id}=\"$friendly_name\"" >> "$rules_file"
-    else
-        info "Creating enhanced rule with port pattern: $simple_port_pattern"
-        echo "# USB Sound Card: $device_name" >> "$rules_file"
-        echo "# Port pattern: $simple_port_pattern" >> "$rules_file"
-        echo "# Uniqueness tag: $uniqueness_tag" >> "$rules_file"
-        echo "SUBSYSTEM==\"sound\", KERNELS==\"*${simple_port_pattern}*\", ATTRS{idVendor}==\"$vendor_id\", ATTRS{idProduct}==\"$product_id\", ATTR{id}=\"$friendly_name\"" >> "$rules_file"
-        
-        # If we have actual card info that's different from the port pattern, add a backup rule
-        if [ -n "$card_device_info" ] && [ "$card_device_info" != "$simple_port_pattern" ]; then
-            echo "# Backup rule using card device info" >> "$rules_file"
-            echo "SUBSYSTEM==\"sound\", KERNELS==\"*${card_device_info}*\", ATTRS{idVendor}==\"$vendor_id\", ATTRS{idProduct}==\"$product_id\", ATTR{id}=\"$friendly_name\"" >> "$rules_file"
-        fi
+    # Basic rule by vendor/product ID
+    echo "SUBSYSTEM==\"sound\", ATTRS{idVendor}==\"$vendor_id\", ATTRS{idProduct}==\"$product_id\", SYMLINK+=\"sound/by-id/$friendly_name\", ATTR{id}=\"$friendly_name\"" >> "$rules_file"
+    
+    # Rule with port path if available
+    if [ -n "$simple_port" ]; then
+        echo "# Alternative rule with device path" >> "$rules_file"
+        echo "SUBSYSTEM==\"sound\", KERNELS==\"$simple_port\", ATTRS{idVendor}==\"$vendor_id\", ATTRS{idProduct}==\"$product_id\", SYMLINK+=\"sound/by-id/$friendly_name\", ATTR{id}=\"$friendly_name\"" >> "$rules_file"
+    fi
+    
+    # Rule with platform ID_PATH if available
+    if [ -n "$platform_id_path" ]; then
+        echo "# Another alternative without wildcards" >> "$rules_file"
+        echo "SUBSYSTEM==\"sound\", ENV{ID_PATH}==\"$platform_id_path\", ATTRS{idVendor}==\"$vendor_id\", ATTRS{idProduct}==\"$product_id\", SYMLINK+=\"sound/by-id/$friendly_name\", ATTR{id}=\"$friendly_name\"" >> "$rules_file"
     fi
     
     if [ $? -ne 0 ]; then
