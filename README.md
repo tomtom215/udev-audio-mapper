@@ -97,7 +97,7 @@ USB Audio Mapper solves these issues by creating persistent, reliable device nam
 
 1. Download the script:
    ```bash
-   wget https://example.com/usb_audio_mapper.sh
+   wget https://github.com/tomtom215/usb_audio_mapper.sh
    ```
 
 2. Make it executable:
