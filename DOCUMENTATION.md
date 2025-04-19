@@ -1,4 +1,4 @@
-# udev-audio-mapper - Technical Documentation
+# usb-audio-mapper - Technical Documentation
 
 This document provides detailed technical information about how the udev-audio-mapper works, the underlying Linux subsystems it interacts with, and how to customize it for advanced use cases.
 
