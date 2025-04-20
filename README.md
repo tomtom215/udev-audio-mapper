@@ -44,7 +44,7 @@ The USB Audio Mapper addresses several common issues that Linux users face with 
    - **Impact**: Disconnecting one device can break configurations for all other audio devices
    - **Consequence**: Makes working with multiple USB audio devices frustrating
 
-USB Audio Mapper solves these issues by creating persistent, reliable device names and paths that remain consistent regardless of connection order or system changes.
+USB Audio Mapper solves these issues by creating persistent, reliable device names and paths that remain consistent regardless of connection order or system changes, but you should ideally leave device plugged into the same USB port once configured via this script.
 
 ## Installation
 
