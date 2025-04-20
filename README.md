@@ -50,7 +50,7 @@ USB Audio Mapper solves these issues by creating persistent, reliable device nam
 
 1. Download the script:
    ```bash
-   wget https://github.com/tomtom215/usb_audio_mapper.sh
+   wget https://raw.githubusercontent.com/tomtom215/usb-audio-mapper/main/usb-audio-mapper.sh
    ```
 
 2. Make it executable:
