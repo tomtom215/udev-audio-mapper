@@ -1,6 +1,6 @@
 # USB Audio Mapper
 
-A Linux utility for creating persistent naming rules for USB audio devices, ensuring they maintain consistent names across reboots.
+A Linux utility for creating persistent naming rules for USB audio capture devices, ensuring they maintain consistent names across reboots.
 
 ## Overview
 
