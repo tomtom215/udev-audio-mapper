@@ -1,51 +1,164 @@
 #!/bin/bash
-# usb-soundcard-mapper.sh - Automatically map USB sound cards to persistent names
+# usb-audio-mapper.sh v1.1.0 - Automatically map USB sound cards to persistent names
 #
 # This script creates udev rules for USB sound cards to ensure they maintain 
 # consistent names across reboots, with symlinks for easy access.
 
-# Function to print error messages and exit
+# === Global Configuration ===
+VERSION="1.1.0"
+DEBUG="false"
+VERBOSE="false"
+
+# === Exit Codes ===
+EXIT_SUCCESS=0
+EXIT_ERROR_GENERIC=1
+EXIT_ERROR_NOT_ROOT=2
+EXIT_ERROR_DEPENDENCIES=3
+EXIT_ERROR_FILE_OPERATIONS=4
+EXIT_ERROR_DEVICE_DETECTION=5
+EXIT_ERROR_INVALID_INPUT=6
+EXIT_ERROR_PARTIAL_SUCCESS=7
+
+# === Terminal Colors ===
+COLOR_RED="\e[31m"
+COLOR_GREEN="\e[32m"
+COLOR_YELLOW="\e[33m"
+COLOR_BLUE="\e[34m"
+COLOR_MAGENTA="\e[35m"
+COLOR_CYAN="\e[36m"
+COLOR_RESET="\e[0m"
+
+# === Function to print error messages and exit ===
 error_exit() {
-    echo -e "\e[31mERROR: $1\e[0m" >&2
-    exit 1
+    echo -e "${COLOR_RED}ERROR: $1${COLOR_RESET}" >&2
+    exit "${2:-$EXIT_ERROR_GENERIC}"
 }
 
-# Function to print information messages
+# === Function to print information messages ===
 info() {
-    echo -e "\e[34mINFO: $1\e[0m"
+    echo -e "${COLOR_BLUE}INFO: $1${COLOR_RESET}"
 }
 
-# Function to print success messages
+# === Function to print success messages ===
 success() {
-    echo -e "\e[32mSUCCESS: $1\e[0m"
+    echo -e "${COLOR_GREEN}SUCCESS: $1${COLOR_RESET}"
 }
 
-# Function to print warning messages
+# === Function to print warning messages ===
 warning() {
-    echo -e "\e[33mWARNING: $1\e[0m" >&2
+    echo -e "${COLOR_YELLOW}WARNING: $1${COLOR_RESET}" >&2
 }
 
-# Function to print debug messages if debug mode is enabled
+# === Function to print verbose messages ===
+verbose() {
+    if [ "$VERBOSE" = "true" ]; then
+        echo -e "${COLOR_CYAN}VERBOSE: $1${COLOR_RESET}" >&2
+    fi
+}
+
+# === Function to print debug messages if debug mode is enabled ===
 debug() {
     if [ "$DEBUG" = "true" ]; then
-        echo -e "\e[35mDEBUG: $1\e[0m" >&2
+        echo -e "${COLOR_MAGENTA}DEBUG: $1${COLOR_RESET}" >&2
     fi
 }
 
-# Check if script is run as root
+# === Enable stricter shell options for error handling ===
+set_strict_mode() {
+    set -o pipefail  # Propagate errors through pipes
+    # Note: We avoid errexit (set -e) as it would interfere with error handling functions
+}
+
+# === Check if script is run as root ===
 check_root() {
     if [ "$EUID" -ne 0 ]; then
-        error_exit "This script must be run as root. Please use sudo."
+        error_exit "This script must be run as root. Please use sudo." "$EXIT_ERROR_NOT_ROOT"
     fi
 }
 
-# Function to get available USB sound cards
+# === Check for required dependencies ===
+check_dependencies() {
+    local missing_deps=()
+    
+    for cmd in lsusb aplay udevadm find readlink grep sed md5sum mktemp; do
+        if ! command -v "$cmd" >/dev/null 2>&1; then
+            missing_deps+=("$cmd")
+        fi
+    done
+    
+    if [ ${#missing_deps[@]} -ne 0 ]; then
+        error_exit "Required commands not found: ${missing_deps[*]}\nPlease install the necessary packages." "$EXIT_ERROR_DEPENDENCIES"
+    fi
+}
+
+# === Atomic file write operation ===
+write_rules_file() {
+    local content="$1"
+    local target="$2"
+    local temp_file
+    
+    temp_file=$(mktemp)
+    if [ $? -ne 0 ]; then
+        error_exit "Failed to create temporary file." "$EXIT_ERROR_FILE_OPERATIONS"
+    fi
+    
+    echo "$content" > "$temp_file"
+    if [ $? -ne 0 ]; then
+        rm -f "$temp_file"
+        error_exit "Failed to write to temporary rules file." "$EXIT_ERROR_FILE_OPERATIONS"
+    fi
+    
+    mv "$temp_file" "$target"
+    if [ $? -ne 0 ]; then
+        rm -f "$temp_file"
+        error_exit "Failed to move temporary rules file to $target." "$EXIT_ERROR_FILE_OPERATIONS"
+    fi
+}
+
+# === Append content to a file atomically ===
+append_to_file() {
+    local content="$1"
+    local target="$2"
+    local temp_file
+    
+    # Create temp file with current content
+    temp_file=$(mktemp)
+    if [ $? -ne 0 ]; then
+        error_exit "Failed to create temporary file." "$EXIT_ERROR_FILE_OPERATIONS"
+    fi
+    
+    # Copy existing content if the file exists
+    if [ -f "$target" ]; then
+        cat "$target" > "$temp_file"
+        if [ $? -ne 0 ]; then
+            rm -f "$temp_file"
+            error_exit "Failed to read existing file $target." "$EXIT_ERROR_FILE_OPERATIONS"
+        fi
+    fi
+    
+    # Append new content (using printf to properly handle newlines)
+    printf "%s" "$content" >> "$temp_file"
+    if [ $? -ne 0 ]; then
+        rm -f "$temp_file"
+        error_exit "Failed to append to temporary file." "$EXIT_ERROR_FILE_OPERATIONS"
+    fi
+    
+    # Move temp file to target
+    mv "$temp_file" "$target"
+    if [ $? -ne 0 ]; then
+        rm -f "$temp_file"
+        error_exit "Failed to move temporary file to $target." "$EXIT_ERROR_FILE_OPERATIONS"
+    fi
+}
+
+# === Function to get available USB sound cards ===
 get_card_info() {
     # Get lsusb output
     info "Getting USB device information..."
+    local lsusb_output
     lsusb_output=$(lsusb)
     if [ $? -ne 0 ]; then
-        error_exit "Failed to run lsusb command."
+        error_exit "Failed to run lsusb command." "$EXIT_ERROR_DEVICE_DETECTION"
     fi
     
     echo "USB devices:"
@@ -54,14 +167,15 @@ get_card_info() {
     
     # Get sound card information
     info "Getting sound card information..."
-    cards_file="/proc/asound/cards"
+    local cards_file="/proc/asound/cards"
     if [ ! -f "$cards_file" ]; then
-        error_exit "Cannot access $cards_file. Is ALSA installed properly?"
+        error_exit "Cannot access $cards_file. Is ALSA installed properly?" "$EXIT_ERROR_DEVICE_DETECTION"
     fi
     
+    local cards_output
     cards_output=$(cat "$cards_file")
     if [ $? -ne 0 ]; then
-        error_exit "Failed to read $cards_file."
+        error_exit "Failed to read $cards_file." "$EXIT_ERROR_DEVICE_DETECTION"
     fi
     
     echo "Sound cards:"
@@ -81,6 +195,7 @@ get_card_info() {
     
     # Display aplay output for reference
     if command -v aplay &> /dev/null; then
+        local aplay_output
         aplay_output=$(aplay -l 2>/dev/null)
         if [ -n "$aplay_output" ]; then
             echo "ALSA playback devices:"
@@ -90,34 +205,65 @@ get_card_info() {
     fi
 }
 
-# Function to check existing udev rules
+# === Function to check existing udev rules ===
 check_existing_rules() {
     info "Checking existing udev rules..."
     
-    rules_file="/etc/udev/rules.d/99-usb-soundcards.rules"
+    local rules_file="/etc/udev/rules.d/99-usb-soundcards.rules"
     
     if [ -f "$rules_file" ]; then
         echo "Existing rules in $rules_file:"
         cat "$rules_file"
         echo
+        
+        # Create backup of existing rules
+        backup_rules "$rules_file"
     else
         info "No existing rules file found. A new one will be created."
     fi
 }
 
-# Function to reload udev rules
+# === Function to backup existing rules ===
+backup_rules() {
+    local rules_file="$1"
+    local backup_file="${rules_file}.bak.$(date +%Y%m%d%H%M%S)"
+    
+    if [ -f "$rules_file" ]; then
+        info "Creating backup of existing rules..."
+        cp "$rules_file" "$backup_file"
+        if [ $? -ne 0 ]; then
+            warning "Failed to create backup of $rules_file. Proceeding anyway."
+        else
+            success "Backup created: $backup_file"
+        fi
+    fi
+}
+
+# === Function to reload udev rules ===
 reload_udev_rules() {
     info "Reloading udev rules..."
     
-    udevadm control --reload-rules
+    # Make sure directory exists
+    mkdir -p /dev/sound/by-id 2>/dev/null
+    
+    # Reload rules
+    local result
+    result=$(udevadm control --reload-rules 2>&1)
     if [ $? -ne 0 ]; then
-        error_exit "Failed to reload udev rules."
+        error_exit "Failed to reload udev rules: $result" "$EXIT_ERROR_GENERIC"
     fi
+    
+    # Trigger udev to apply the rules
+    info "Triggering udev to apply rules..."
+    udevadm trigger --subsystem-match=sound
+    
+    # Give udev time to process
+    sleep 1
     
     success "Rules reloaded successfully."
 }
 
-# Function to prompt for reboot
+# === Function to prompt for reboot ===
 prompt_reboot() {
     echo "A reboot is recommended for the changes to take effect."
     read -p "Do you want to reboot now? (y/n): " -n 1 -r
@@ -130,7 +276,7 @@ prompt_reboot() {
     fi
 }
 
-# Function to check if a string is valid USB path
+# === Function to check if a string is valid USB path ===
 is_valid_usb_path() {
     local path="$1"
     
@@ -147,7 +293,30 @@ is_valid_usb_path() {
     fi
 }
 
-# Function to get USB physical port path for a device
+# === Function to validate friendly name ===
+validate_friendly_name() {
+    local name="$1"
+    local max_length=64
+    
+    # Check for empty name
+    if [ -z "$name" ]; then
+        return 1
+    fi
+    
+    # Check for valid characters
+    if ! [[ "$name" =~ ^[a-z0-9-]+$ ]]; then
+        return 2
+    fi
+    
+    # Check length
+    if [ ${#name} -gt $max_length ]; then
+        return 3
+    fi
+    
+    return 0
+}
+
+# === Function to get USB physical port path for a device ===
 get_usb_physical_port() {
     local bus_num="$1"
     local dev_num="$2"
@@ -357,7 +526,7 @@ get_usb_physical_port() {
     return 0
 }
 
-# Function to get platform path for ID_PATH rule
+# === Function to get platform path for ID_PATH rule ===
 get_platform_id_path() {
     local bus_num="$1"
     local dev_num="$2"
@@ -409,7 +578,7 @@ get_platform_id_path() {
             # Look for platform identifiers in sysfs paths
             for platform_path in /sys/bus/usb/devices/usb*; do
                 if [ -d "$platform_path" ]; then
-                    local platform_id=$(basename $(dirname "$platform_path"))
+                    local platform_id=$(basename "$(dirname "$platform_path")")
                     if [[ "$platform_id" == *"usb"* ]]; then
                         # Construct a platform-style path
                         echo "platform-${platform_id}-usb-0:${port_nums}:1.0"
@@ -434,7 +603,7 @@ get_platform_id_path() {
     return 1
 }
 
-# Function to test USB port detection
+# === Function to test USB port detection ===
 test_usb_port_detection() {
     info "Testing USB port detection..."
     
@@ -555,21 +724,21 @@ test_usb_port_detection() {
         return 1
     elif [ $success_count -lt $total_count ]; then
         warning "Port detection partially successful. Some devices could not be mapped."
-        return 2
+        return "$EXIT_ERROR_PARTIAL_SUCCESS"
     else
         success "Port detection test successful! All device ports were mapped."
         return 0
     fi
 }
 
-# Function to get more detailed card info including port path
+# === Function to get more detailed card info including port path ===
 get_detailed_card_info() {
     local card_num="$1"
     
     # Get card directory path
-    card_dir="/proc/asound/card${card_num}"
+    local card_dir="/proc/asound/card${card_num}"
     if [ ! -d "$card_dir" ]; then
-        error_exit "Cannot find directory $card_dir"
+        error_exit "Cannot find directory $card_dir" "$EXIT_ERROR_DEVICE_DETECTION"
     fi
     
     # Check if it's a USB device
@@ -789,9 +958,9 @@ get_detailed_card_info() {
     return 1
 }
 
-# Enhanced interactive mapping function
+# === Function for interactive mapping ===
 interactive_mapping() {
-    echo -e "\e[1m===== USB Sound Card Mapper =====\e[0m"
+    echo -e "\e[1m===== USB Sound Card Mapper v$VERSION =====\e[0m"
     echo "This wizard will guide you through mapping your USB sound card to a consistent name."
     echo
     
@@ -800,22 +969,22 @@ interactive_mapping() {
     
     # Let user select a card by number
     echo "Enter the number of the sound card you want to map:"
-    read card_num
+    read -r card_num
     
     if ! [[ "$card_num" =~ ^[0-9]+$ ]]; then
-        error_exit "Invalid input. Please enter a number."
+        error_exit "Invalid input. Please enter a number." "$EXIT_ERROR_INVALID_INPUT"
     fi
     
     # Get the card information line
-    card_line=$(grep -E "^ *$card_num " /proc/asound/cards)
+    local card_line=$(grep -E "^ *$card_num " /proc/asound/cards)
     if [ -z "$card_line" ]; then
-        error_exit "No sound card found with number $card_num."
+        error_exit "No sound card found with number $card_num." "$EXIT_ERROR_DEVICE_DETECTION"
     fi
     
     # Extract card name
-    card_name=$(echo "$card_line" | sed -n 's/.*\[\([^]]*\)\].*/\1/p' | xargs)
+    local card_name=$(echo "$card_line" | sed -n 's/.*\[\([^]]*\)\].*/\1/p' | xargs)
     if [ -z "$card_name" ]; then
-        error_exit "Could not extract card name from line: $card_line"
+        error_exit "Could not extract card name from line: $card_line" "$EXIT_ERROR_DEVICE_DETECTION"
     fi
     
     echo "Selected card: $card_num - $card_name"
@@ -823,7 +992,7 @@ interactive_mapping() {
     # Extract card device info from proc/asound/cards - this is the most reliable approach
     local card_device_info=""
     # Look at full card information to get the full USB path
-    local full_card_info=$(cat /proc/asound/cards | grep -A1 "^ *$card_num ")
+    local full_card_info=$(grep -A1 "^ *$card_num " /proc/asound/cards)
     
     if [[ "$full_card_info" =~ at\ (usb-[^ ,]+) ]]; then
         card_device_info="${BASH_REMATCH[1]}"
@@ -846,29 +1015,33 @@ interactive_mapping() {
     echo
     echo "Select the USB device that corresponds to this sound card:"
     lsusb | nl -w2 -s". "
-    read usb_num
+    read -r usb_num
     
     if ! [[ "$usb_num" =~ ^[0-9]+$ ]]; then
-        error_exit "Invalid input. Please enter a number."
+        error_exit "Invalid input. Please enter a number." "$EXIT_ERROR_INVALID_INPUT"
     fi
     
     # Get the USB device line
-    usb_line=$(lsusb | sed -n "${usb_num}p")
+    local usb_line=$(lsusb | sed -n "${usb_num}p")
     if [ -z "$usb_line" ]; then
-        error_exit "No USB device found at position $usb_num."
+        error_exit "No USB device found at position $usb_num." "$EXIT_ERROR_DEVICE_DETECTION"
     fi
     
     # Extract vendor and product IDs
+    local vendor_id=""
+    local product_id=""
     if [[ "$usb_line" =~ ID\ ([0-9a-f]{4}):([0-9a-f]{4}) ]]; then
         vendor_id="${BASH_REMATCH[1]}"
         product_id="${BASH_REMATCH[2]}"
     else
-        error_exit "Could not extract vendor and product IDs from: $usb_line"
+        error_exit "Could not extract vendor and product IDs from: $usb_line" "$EXIT_ERROR_DEVICE_DETECTION"
     fi
     
     # Extract bus and device numbers for port identification
     local physical_port=""
     local simple_port=""
+    local bus_num=""
+    local dev_num=""
     
     if [[ "$usb_line" =~ Bus\ ([0-9]{3})\ Device\ ([0-9]{3}) ]]; then
         bus_num="${BASH_REMATCH[1]}"
@@ -916,7 +1089,7 @@ interactive_mapping() {
                 read -p "Continue with this identifier? (y/n): " -n 1 -r
                 echo
                 if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-                    error_exit "Mapping canceled."
+                    error_exit "Mapping canceled." "$EXIT_SUCCESS"
                 fi
             fi
         else
@@ -943,48 +1116,74 @@ interactive_mapping() {
     # Get friendly name from user
     echo
     echo "Enter a friendly name for the sound card (lowercase letters, numbers, and hyphens only):"
-    read friendly_name
+    read -r friendly_name
     
     if [ -z "$friendly_name" ]; then
         friendly_name=$(echo "$card_name" | tr '[:upper:]' '[:lower:]' | tr ' ' '-')
         info "Using default name: $friendly_name"
     fi
     
-    if ! [[ "$friendly_name" =~ ^[a-z0-9-]+$ ]]; then
-        error_exit "Invalid friendly name. Use only lowercase letters, numbers, and hyphens."
+    # Validate friendly name
+    validate_friendly_name "$friendly_name"
+    local validate_result=$?
+    
+    if [ $validate_result -eq 1 ]; then
+        error_exit "Friendly name cannot be empty." "$EXIT_ERROR_INVALID_INPUT"
+    elif [ $validate_result -eq 2 ]; then
+        error_exit "Invalid friendly name. Use only lowercase letters, numbers, and hyphens." "$EXIT_ERROR_INVALID_INPUT"
+    elif [ $validate_result -eq 3 ]; then
+        error_exit "Friendly name is too long. Maximum length is 64 characters." "$EXIT_ERROR_INVALID_INPUT"
     fi
     
     # Check existing rules
     check_existing_rules
     
-    # Create rule file
-    rules_file="/etc/udev/rules.d/99-usb-soundcards.rules"
+    # Ensure the directory exists
     mkdir -p /etc/udev/rules.d/
+    mkdir -p /dev/sound/by-id
+    
+    # Create rule file
+    local rules_file="/etc/udev/rules.d/99-usb-soundcards.rules"
     
     # Create comprehensive rule set
     echo "Creating comprehensive mapping rules..."
     
+    # Build the rules content
+    local rules_content=""
+    
     # Write the comment header
-    echo "# USB Sound Card: $card_name" >> "$rules_file"
+    rules_content+="# USB Sound Card: $card_name
+# Added by usb-soundcard-mapper v$VERSION on $(date '+%Y-%m-%d %H:%M:%S')
+"
     
     # Write the basic rule by vendor/product ID first
-    echo "SUBSYSTEM==\"sound\", ATTRS{idVendor}==\"$vendor_id\", ATTRS{idProduct}==\"$product_id\", SYMLINK+=\"sound/by-id/$friendly_name\", ATTR{id}=\"$friendly_name\"" >> "$rules_file"
+    rules_content+="SUBSYSTEM==\"sound\", ATTRS{idVendor}==\"$vendor_id\", ATTRS{idProduct}==\"$product_id\", SYMLINK+=\"sound/by-id/$friendly_name\", ATTR{id}=\"$friendly_name\"
+"
     
     # Write the rule with device path if available
     if [ -n "$simple_port" ]; then
-        echo "# Alternative rule with device path" >> "$rules_file"
-        echo "SUBSYSTEM==\"sound\", KERNELS==\"$simple_port\", ATTRS{idVendor}==\"$vendor_id\", ATTRS{idProduct}==\"$product_id\", SYMLINK+=\"sound/by-id/$friendly_name\", ATTR{id}=\"$friendly_name\"" >> "$rules_file"
+        rules_content+="
+# Alternative rule with device path
+SUBSYSTEM==\"sound\", KERNELS==\"$simple_port\", ATTRS{idVendor}==\"$vendor_id\", ATTRS{idProduct}==\"$product_id\", SYMLINK+=\"sound/by-id/$friendly_name\", ATTR{id}=\"$friendly_name\"
+"
     fi
     
     # Write the rule with platform ID_PATH if available
     if [ -n "$platform_id_path" ]; then
-        echo "# Another alternative without wildcards" >> "$rules_file"
-        echo "SUBSYSTEM==\"sound\", ENV{ID_PATH}==\"$platform_id_path\", ATTRS{idVendor}==\"$vendor_id\", ATTRS{idProduct}==\"$product_id\", SYMLINK+=\"sound/by-id/$friendly_name\", ATTR{id}=\"$friendly_name\"" >> "$rules_file"
+        rules_content+="
+# Another alternative without wildcards
+SUBSYSTEM==\"sound\", ENV{ID_PATH}==\"$platform_id_path\", ATTRS{idVendor}==\"$vendor_id\", ATTRS{idProduct}==\"$product_id\", SYMLINK+=\"sound/by-id/$friendly_name\", ATTR{id}=\"$friendly_name\"
+"
     fi
     
-    if [ $? -ne 0 ]; then
-        error_exit "Failed to write to $rules_file."
-    fi
+    # Add timestamp separator
+    rules_content+="
+# ------------------ End of rule created on $(date '+%Y-%m-%d %H:%M:%S') ------------------
+
+"
+    
+    # Append to the rules file
+    append_to_file "$rules_content" "$rules_file"
     
     # Reload udev rules
     reload_udev_rules
@@ -993,9 +1192,10 @@ interactive_mapping() {
     prompt_reboot
     
     success "Sound card mapping created successfully."
+    return "$EXIT_SUCCESS"
 }
 
-# Non-interactive mapping function
+# === Function for non-interactive mapping ===
 non_interactive_mapping() {
     local device_name="$1"
     local vendor_id="$2"
@@ -1003,21 +1203,30 @@ non_interactive_mapping() {
     local port="$4"
     local friendly_name="$5"
     
+    # Input validation
     if [ -z "$device_name" ] || [ -z "$vendor_id" ] || [ -z "$product_id" ] || [ -z "$friendly_name" ]; then
-        error_exit "Device name, vendor ID, product ID, and friendly name must be provided for non-interactive mode."
+        error_exit "Device name, vendor ID, product ID, and friendly name must be provided for non-interactive mode." "$EXIT_ERROR_INVALID_INPUT"
     fi
     
     # Validate inputs
     if ! [[ "$vendor_id" =~ ^[0-9a-f]{4}$ ]]; then
-        error_exit "Invalid vendor ID: $vendor_id. Must be a 4-digit hex value."
+        error_exit "Invalid vendor ID: $vendor_id. Must be a 4-digit hex value." "$EXIT_ERROR_INVALID_INPUT"
     fi
     
     if ! [[ "$product_id" =~ ^[0-9a-f]{4}$ ]]; then
-        error_exit "Invalid product ID: $product_id. Must be a 4-digit hex value."
+        error_exit "Invalid product ID: $product_id. Must be a 4-digit hex value." "$EXIT_ERROR_INVALID_INPUT"
     fi
     
-    if ! [[ "$friendly_name" =~ ^[a-z0-9-]+$ ]]; then
-        error_exit "Invalid friendly name: $friendly_name. Use only lowercase letters, numbers, and hyphens."
+    # Validate friendly name
+    validate_friendly_name "$friendly_name"
+    local validate_result=$?
+    
+    if [ $validate_result -eq 1 ]; then
+        error_exit "Friendly name cannot be empty." "$EXIT_ERROR_INVALID_INPUT"
+    elif [ $validate_result -eq 2 ]; then
+        error_exit "Invalid friendly name. Use only lowercase letters, numbers, and hyphens." "$EXIT_ERROR_INVALID_INPUT"
+    elif [ $validate_result -eq 3 ]; then
+        error_exit "Friendly name is too long. Maximum length is 64 characters." "$EXIT_ERROR_INVALID_INPUT"
     fi
     
     # See if we can find the actual device in the system
@@ -1028,7 +1237,7 @@ non_interactive_mapping() {
     local platform_id_path=""
     
     # Get sound card information
-    cards_file="/proc/asound/cards"
+    local cards_file="/proc/asound/cards"
     if [ -f "$cards_file" ]; then
         while IFS= read -r line; do
             # Check if this could be our device based on name similarities
@@ -1084,7 +1293,7 @@ non_interactive_mapping() {
     # Try to find the device in lsusb to get bus and device number
     local bus_num=""
     local dev_num=""
-    lsusb_output=$(lsusb)
+    local lsusb_output=$(lsusb)
     if [[ "$lsusb_output" =~ Bus\ ([0-9]{3})\ Device\ ([0-9]{3}):\ ID\ $vendor_id:$product_id ]]; then
         bus_num=$(echo "${BASH_REMATCH[1]}" | sed 's/^0*//')
         dev_num=$(echo "${BASH_REMATCH[2]}" | sed 's/^0*//')
@@ -1100,43 +1309,66 @@ non_interactive_mapping() {
     # Create the rule
     info "Creating rule for $device_name..."
     
-    rules_file="/etc/udev/rules.d/99-usb-soundcards.rules"
+    local rules_file="/etc/udev/rules.d/99-usb-soundcards.rules"
     mkdir -p /etc/udev/rules.d/
     
-    # Create or append to rules file with comprehensive rules
-    echo "# USB Sound Card: $device_name" >> "$rules_file"
+    # Check for existing rules file and create backup if needed
+    if [ -f "$rules_file" ]; then
+        backup_rules "$rules_file"
+    fi
+    
+    # Build the rules content
+    local rules_content=""
+    
+    # Create header for rules file
+    rules_content+="# USB Sound Card: $device_name
+# Added by usb-soundcard-mapper v$VERSION on $(date '+%Y-%m-%d %H:%M:%S')
+"
     
     # Basic rule by vendor/product ID
-    echo "SUBSYSTEM==\"sound\", ATTRS{idVendor}==\"$vendor_id\", ATTRS{idProduct}==\"$product_id\", SYMLINK+=\"sound/by-id/$friendly_name\", ATTR{id}=\"$friendly_name\"" >> "$rules_file"
+    rules_content+="SUBSYSTEM==\"sound\", ATTRS{idVendor}==\"$vendor_id\", ATTRS{idProduct}==\"$product_id\", SYMLINK+=\"sound/by-id/$friendly_name\", ATTR{id}=\"$friendly_name\"
+"
     
     # Rule with port path if available
     if [ -n "$simple_port" ]; then
-        echo "# Alternative rule with device path" >> "$rules_file"
-        echo "SUBSYSTEM==\"sound\", KERNELS==\"$simple_port\", ATTRS{idVendor}==\"$vendor_id\", ATTRS{idProduct}==\"$product_id\", SYMLINK+=\"sound/by-id/$friendly_name\", ATTR{id}=\"$friendly_name\"" >> "$rules_file"
+        rules_content+="
+# Alternative rule with device path
+SUBSYSTEM==\"sound\", KERNELS==\"$simple_port\", ATTRS{idVendor}==\"$vendor_id\", ATTRS{idProduct}==\"$product_id\", SYMLINK+=\"sound/by-id/$friendly_name\", ATTR{id}=\"$friendly_name\"
+"
     fi
     
     # Rule with platform ID_PATH if available
     if [ -n "$platform_id_path" ]; then
-        echo "# Another alternative without wildcards" >> "$rules_file"
-        echo "SUBSYSTEM==\"sound\", ENV{ID_PATH}==\"$platform_id_path\", ATTRS{idVendor}==\"$vendor_id\", ATTRS{idProduct}==\"$product_id\", SYMLINK+=\"sound/by-id/$friendly_name\", ATTR{id}=\"$friendly_name\"" >> "$rules_file"
+        rules_content+="
+# Another alternative without wildcards
+SUBSYSTEM==\"sound\", ENV{ID_PATH}==\"$platform_id_path\", ATTRS{idVendor}==\"$vendor_id\", ATTRS{idProduct}==\"$product_id\", SYMLINK+=\"sound/by-id/$friendly_name\", ATTR{id}=\"$friendly_name\"
+"
     fi
     
-    if [ $? -ne 0 ]; then
-        error_exit "Failed to write to $rules_file."
-    fi
+    # Add timestamp separator
+    rules_content+="
+# ------------------ End of rule created on $(date '+%Y-%m-%d %H:%M:%S') ------------------
+
+"
+    
+    # Append to the rules file
+    append_to_file "$rules_content" "$rules_file"
     
     # Reload udev rules
     reload_udev_rules
     
     success "Sound card mapping created successfully."
     info "Remember to reboot for changes to take effect."
+    
+    return "$EXIT_SUCCESS"
 }
 
-# Display help with enhanced options
+# === Display help with enhanced options ===
 show_help() {
-    echo "USB Sound Card Mapper - Create persistent names for USB sound devices"
+    echo -e "\e[1mUSB Sound Card Mapper v$VERSION\e[0m - Create persistent names for USB sound devices"
     echo
     echo "Usage: $0 [options]"
+    echo
     echo "Options:"
     echo "  -i, --interactive       Run in interactive mode (default)"
     echo "  -n, --non-interactive   Run in non-interactive mode (requires all other parameters)"
@@ -1147,26 +1379,36 @@ show_help() {
     echo "  -f, --friendly NAME     Friendly name to assign"
     echo "  -t, --test              Test USB port detection on current system"
     echo "  -D, --debug             Enable debug output"
+    echo "  -V, --verbose           Enable verbose output"
     echo "  -h, --help              Show this help"
     echo
     echo "Examples:"
-    echo "  $0                      Run in interactive mode"
+    echo "  $0                                  Run in interactive mode"
     echo "  $0 -n -d \"MOVO X1 MINI\" -v 2e88 -p 4610 -f movo-x1-mini"
     echo "  $0 -n -d \"MOVO X1 MINI\" -v 2e88 -p 4610 -u \"usb-3.4\" -f movo-x1-mini"
-    echo "  $0 -t                   Test USB port detection capabilities"
-    exit 0
+    echo "  $0 -n -d \"External USB Mic\" -v 0d8c -p 0012 -f podcast-mic"
+    echo "  $0 -n -d \"Studio Interface\" -v 041e -p 3f02 -u \"usb-1.3.2\" -f studio-interface"
+    echo "  $0 -t                               Test USB port detection capabilities"
+    echo
+    echo "For more information, visit: https://github.com/yourusername/usb-soundcard-mapper"
+    exit "$EXIT_SUCCESS"
 }
 
-# Main function with enhanced options
+# === Main function with enhanced options ===
 main() {
     # Set DEBUG to false by default
     DEBUG="false"
+    VERBOSE="false"
+    
+    # Enable strict mode
+    set_strict_mode
     
     # Parse command line arguments and check for test mode
     for arg in "$@"; do
         case "$arg" in
             -t|--test)
                 check_root
+                check_dependencies
                 test_usb_port_detection
                 exit $?
                 ;;
@@ -1174,15 +1416,20 @@ main() {
                 DEBUG="true"
                 info "Debug mode enabled"
                 ;;
+            -V|--verbose)
+                VERBOSE="true"
+                info "Verbose mode enabled"
+                ;;
         esac
     done
     
     check_root
+    check_dependencies
     
     # Parse command line arguments
     if [ $# -eq 0 ]; then
         interactive_mapping
-        exit 0
+        exit "$EXIT_SUCCESS"
     fi
     
     local device_name=""
@@ -1230,11 +1477,15 @@ main() {
                 # Already handled above
                 shift
                 ;;
+            -V|--verbose)
+                # Already handled above
+                shift
+                ;;
             -h|--help)
                 show_help
                 ;;
             *)
-                error_exit "Unknown option: $1"
+                error_exit "Unknown option: $1" "$EXIT_ERROR_INVALID_INPUT"
                 ;;
         esac
     done
@@ -1245,6 +1496,12 @@ main() {
         non_interactive_mapping "$device_name" "$vendor_id" "$product_id" "$port" "$friendly_name"
     fi
 }
+
+# Display script version if requested
+if [ "$1" = "--version" ] || [ "$1" = "-v" ]; then
+    echo "USB Sound Card Mapper v$VERSION"
+    exit "$EXIT_SUCCESS"
+fi
 
 # Run the main function
 main "$@"
