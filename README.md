@@ -67,19 +67,19 @@ The script will check for these dependencies at startup and report any missing c
 
 1. Download the script:
    ```bash
-   curl -O https://raw.githubusercontent.com/tomtom215/usb-audio-mapper/main/usb-soundcard-mapper.sh
+   curl -O https://raw.githubusercontent.com/tomtom215/usb-audio-mapper/main/usb-audio-mapper.sh
    # or
-   wget https://raw.githubusercontent.com/tomtom215/usb-audio-mapper/main/usb-soundcard-mapper.sh
+   wget https://raw.githubusercontent.com/tomtom215/usb-audio-mapper/main/usb-audio-mapper.sh
    ```
 
 2. Make it executable:
    ```bash
-   chmod +x usb-soundcard-mapper.sh
+   chmod +x usb-audio-mapper.sh
    ```
 
 3. (Optional) Move to system path:
    ```bash
-   sudo mv usb-soundcard-mapper.sh /usr/local/bin/
+   sudo mv usb-audio-mapper.sh /usr/local/bin/
    ```
 
 ## Usage
@@ -89,7 +89,7 @@ The script will check for these dependencies at startup and report any missing c
 Run the script with no arguments to enter interactive mode:
 
 ```bash
-sudo ./usb-soundcard-mapper.sh
+sudo ./usb-audio-mapper.sh
 ```
 
 Follow the prompts to:
@@ -103,7 +103,7 @@ Follow the prompts to:
 For scripting or automating device naming:
 
 ```bash
-sudo ./usb-soundcard-mapper.sh -n -d "DEVICE_NAME" -v VENDOR_ID -p PRODUCT_ID -f FRIENDLY_NAME
+sudo ./usb-audio-mapper.sh -n -d "DEVICE_NAME" -v VENDOR_ID -p PRODUCT_ID -f FRIENDLY_NAME
 ```
 
 Required parameters:
@@ -117,7 +117,7 @@ Optional parameters:
 
 Example:
 ```bash
-sudo ./usb-soundcard-mapper.sh -n -d "MOVO X1 MINI" -v 2e88 -p 4610 -f movo-mic
+sudo ./usb-audio-mapper.sh -n -d "MOVO X1 MINI" -v 2e88 -p 4610 -f movo-mic
 ```
 
 ### Additional Options
@@ -177,7 +177,7 @@ After running the script and rebooting, verify the mapping worked:
 
 4. **Run with debug logging**:
    ```bash
-   sudo ./usb-soundcard-mapper.sh -D
+   sudo ./usb-audio-mapper.sh -D
    ```
 
 5. **Check system logs**:
@@ -201,7 +201,7 @@ For devices with detection problems:
 
 1. **Test port detection capability**:
    ```bash
-   sudo ./usb-soundcard-mapper.sh -t
+   sudo ./usb-audio-mapper.sh -t
    ```
 
 2. **Get detailed device information**:
