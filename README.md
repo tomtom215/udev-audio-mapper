@@ -67,9 +67,9 @@ The script will check for these dependencies at startup and report any missing c
 
 1. Download the script:
    ```bash
-   curl -O https://raw.githubusercontent.com/yourusername/usb-audio-mapper/main/usb-soundcard-mapper.sh
+   curl -O https://raw.githubusercontent.com/tomtom215/usb-audio-mapper/main/usb-soundcard-mapper.sh
    # or
-   wget https://raw.githubusercontent.com/yourusername/usb-audio-mapper/main/usb-soundcard-mapper.sh
+   wget https://raw.githubusercontent.com/tomtom215/usb-audio-mapper/main/usb-soundcard-mapper.sh
    ```
 
 2. Make it executable:
